@@ -1,0 +1,153 @@
+import os
+import sys
+import boto3
+import argparse
+
+os.environ['AWS_DEFAULT_REGION'] = os.environ.get('AWS_REGION', 'us-east-1')
+
+def list_all_domains(client):
+    """
+    List all domain IDs and their respective names.
+
+    Args:
+        client: Boto3 SageMaker client.
+    """
+    print("All Domain IDs and Names:")
+    domains = client.list_domains()
+    for domain in domains['Domains']:
+        print(f"Domain ID: {domain['DomainId']}, Domain Name: {domain['DomainName']}")
+
+def filter_domain_id_with_project_id(client, project_id):
+    """
+    Filter domain IDs with the given project ID as suffix.
+
+    Args:
+        client: Boto3 SageMaker client.
+        project_id (str): Project ID suffix.
+
+    Returns:
+        list: List of dictionaries containing DomainId and DomainName.
+    """
+    filtered_domain_ids = []
+    domains = client.list_domains()
+    for domain in domains['Domains']:
+        if domain['DomainName'].endswith(project_id):
+            filtered_domain_ids.append({'DomainId': domain['DomainId'], 'DomainName': domain['DomainName']})
+    return filtered_domain_ids
+
+def filter_lambdas(client, domain_name):
+    """
+    Filter lambdas associated with the specified domain name.
+
+    Args:
+        client: Boto3 Lambda client.
+        domain_name (str): Domain name.
+
+    Returns:
+        list: List of Lambda function ARNs.
+    """
+    lambdas = []
+    lambda_client = boto3.client('lambda')
+    functions = lambda_client.list_functions()['Functions']
+    for function in functions:
+        if function['FunctionName'].startswith(domain_name):
+            lambdas.append(function['FunctionArn'])
+    return lambdas
+
+def filter_network_interfaces(client, domain_name):
+    """
+    Filter network interfaces associated with the specified domain name.
+
+    Args:
+        client: Boto3 EC2 client.
+        domain_name (str): Domain name.
+
+    Returns:
+        list: List of network interface IDs.
+    """
+    network_interfaces = []
+    ec2_client = boto3.client('ec2')
+    interfaces = ec2_client.describe_network_interfaces()['NetworkInterfaces']
+    for interface in interfaces:
+        if 'TagSet' in interface:
+            for tag in interface['TagSet']:
+                if tag['Key'] == 'Domain' and tag['Value'] == domain_name:
+                    network_interfaces.append(interface['NetworkInterfaceId'])
+    return network_interfaces
+
+def filter_efs_volumes(client, domain_name):
+    """
+    Filter EFS volumes associated with the specified domain name.
+
+    Args:
+        client: Boto3 EFS client.
+        domain_name (str): Domain name.
+
+    Returns:
+        list: List of EFS volume IDs.
+    """
+    efs_volumes = []
+    efs_client = boto3.client('efs')
+    file_systems = efs_client.describe_file_systems()['FileSystems']
+    for fs in file_systems:
+        if 'Tags' in fs:
+            for tag in fs['Tags']:
+                if tag['Key'] == 'Domain' and tag['Value'] == domain_name:
+                    efs_volumes.append(fs['FileSystemId'])
+    return efs_volumes
+
+def delete_domain(client, domain_id, dry_run=False):
+    """
+    Delete resources associated with the given domain ID.
+
+    Args:
+        client: Boto3 SageMaker client.
+        domain_id (str): Domain ID to delete.
+        dry_run (bool): Whether to perform a dry run.
+    """
+    domain_name = client.describe_domain(DomainId=domain_id)['DomainName']
+    
+    # Initialize dependency lists
+    lambdas = filter_lambdas(client, domain_name)
+    network_interfaces = filter_network_interfaces(client, domain_name)
+    efs_volumes = filter_efs_volumes(client, domain_name)
+    
+    dependencies = {
+        "Lambdas": lambdas,
+        "Network Interfaces": network_interfaces,
+        "EFS Volumes": efs_volumes
+    }
+    
+    # Check if there are any dependencies
+    if any(dependencies.values()):
+        print("Dry run: Detected dependencies. Cannot delete domain.")
+        print("Dependencies:")
+        for resource, items in dependencies.items():
+            if items:
+                print(f"- {resource}: {items}")
+        return False
+    else:
+        if not dry_run:
+            # Delete Domain
+            print(f"Deleting Domain: {domain_id}")
+            client.delete_domain(DomainId=domain_id, RetentionPolicy={'HomeEfsFileSystem': 'Delete'})
+            print("Domain deleted successfully.")
+        else:
+            print("Dry run: No dependencies detected. Domain deletion simulation successful.")
+        return True
+
+def main():
+    parser = argparse.ArgumentParser(description='Delete resources in AWS SageMaker')
+    parser.add_argument('--domain-id', help='Domain ID(s) to delete, comma-separated', required=True)
+    parser.add_argument('--dry-run', action='store_true', help='Perform a dry run')
+    args = parser.parse_args()
+
+    client = boto3.client('sagemaker')
+    
+    domain_ids = args.domain_id.split(',')
+    for domain_id in domain_ids:
+        print(f"Preparing to delete Domain ID: {domain_id}")
+        delete_domain(client, domain_id, args.dry_run)
+
+if __name__ == '__main__':
+    main()
