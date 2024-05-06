@@ -260,3 +260,29 @@ def delete_domain(client, domain_id, domain_name, dry_run=False):
 (Pdb) p domain_id  # Print the value of domain_id
 (Pdb) s  # Step into the next function call
 # ... (continue debugging)
+
+
+Role Mapping Through AWS STS at USAA
+1. Custom App-Created Roles
+Within USAA, custom application-created roles are roles specifically designed and managed by applications to control access to AWS resources.
+These roles are tailored to the specific needs and permissions required by the applications they serve.
+2. Service Accounts
+Service accounts are special accounts used by processes or applications to interact with AWS services and resources.
+These accounts typically have restricted permissions based on the principle of least privilege, ensuring that they only have access to the resources necessary for their functions.
+3. Role Mapping Process
+The role mapping process involves associating a custom app-created role or service account with an AWS IAM role using AWS STS to obtain temporary security credentials.
+4. Source Process Execution
+The source process, running as a service account within USAA's environment, initiates the role mapping process by executing the AWS STS binary.
+This binary is responsible for facilitating the communication with AWS STS to request temporary security credentials for the mapped role.
+5. STS Binary Execution
+When the STS binary is executed, it communicates with AWS STS to authenticate the source process and request temporary security credentials for the mapped role.
+The authentication process typically involves validating the identity and permissions of the source process based on its service account credentials.
+6. Retrieval of STS Credentials
+Upon successful authentication and authorization, AWS STS issues temporary security credentials for the mapped role.
+These credentials include an access key ID, secret access key, and session token, which are used by the source process to access AWS resources.
+7. Usage of STS Credentials
+The source process, now equipped with the temporary security credentials obtained from AWS STS, can access AWS resources and services based on the permissions granted to the mapped role.
+These credentials have a limited lifespan and are automatically rotated by AWS STS, enhancing security.
+8. Custom Build for Non-Existent Roles
+For roles that do not exist or require custom configurations beyond standard IAM roles, custom-built solutions may be necessary.
+This could involve developing custom IAM policies, role assumptions logic, and integration with AWS STS to meet the specific requirements of the application or service.
