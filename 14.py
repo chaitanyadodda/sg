@@ -1,3 +1,80 @@
+import json
+import os
+import logging
+import boto3
+
+REGION = os.environ['AWS_REGION']
+sm_client = boto3.client('sagemaker', REGION)
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    """Handler to generate the Presigned URL."""
+    LOGGER.info("Event message: %s", event)
+    LOGGER.debug("Event context: %s", context)
+    
+    presigned_urls = {}
+    try:
+        LOGGER.info("Querying all domains")
+        sm_domains = sm_client.list_domains()
+        
+        found_first_user_profile = False
+        for domain_info in sm_domains.get('Domains', []):
+            domain_id = domain_info.get('DomainId')
+            
+            LOGGER.info("Processing domain: %s", domain_id)
+            
+            try:
+                if 'requestContext' in event and 'authorizer' in event['requestContext']:
+                    user_profile = event['requestContext']['authorizer'].get('party-id')
+                    if user_profile and not found_first_user_profile:
+                        modified_user_profile = user_profile[2:]
+                        response = sm_client.create_presigned_domain_url(
+                            DomainId=domain_id,
+                            UserProfileName=modified_user_profile,
+                            SessionExpirationDurationInSeconds=43200,
+                            ExpiresInSeconds=60
+                        )
+                        presigned_urls[domain_id] = response
+                        found_first_user_profile = True
+                    elif not found_first_user_profile:
+                        presigned_urls[domain_id] = "Presigned URL not generated"
+                    else:
+                        presigned_urls[domain_id] = "Not found"
+                else:
+                    raise Exception("Request context or authorizer not found")
+                
+            except Exception as e:
+                LOGGER.error("Error processing domain %s: %s", domain_id, str(e))
+                presigned_urls[domain_id] = {"error": str(e)}
+    
+    except Exception as exception:
+        LOGGER.error("Error querying domains: %s", str(exception))
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'OPTIONS, POST, GET'
+            },
+            'body': json.dumps({"error": str(exception)})
+        }
+    
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'OPTIONS, POST, GET'
+        },
+        'body': json.dumps(presigned_urls)
+    }
+
+
+
+
+
 import os
 import sys
 import boto3
