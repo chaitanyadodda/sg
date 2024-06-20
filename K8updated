@@ -1,0 +1,103 @@
+import logging
+from datetime import timedelta
+from airflow.models import BaseOperator
+from airflow.utils.decorators import apply_defaults
+from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
+from kubernetes.client import models as k8s_models
+
+class KittuK8sPodOperator(BaseOperator):
+    template_fields = ("namespace", "pod_name", "image", "command", "args", "env_vars", "volume_mounts", "volumes")
+
+    @apply_defaults
+    def __init__(
+        self,
+        namespace: str = "default",
+        pod_name: str = "default_pod_name",
+        image: str = "busybox",
+        command: list = None,
+        args: list = None,
+        env_vars: list = None,
+        volume_mounts: list = None,
+        volumes: list = None,
+        in_cluster: bool = True,
+        is_delete_operator_pod: bool = True,
+        get_logs: bool = True,
+        image_pull_policy: str = "IfNotPresent",
+        full_pod_spec: k8s_models.V1Pod = None,
+        execution_timeout: timedelta = timedelta(hours=12),
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.namespace = namespace
+        self.pod_name = pod_name
+        self.image = image
+        self.command = command or []
+        self.args = args or []
+        self.env_vars = env_vars or []
+        self.volume_mounts = volume_mounts or []
+        self.volumes = volumes or []
+        self.in_cluster = in_cluster
+        self.is_delete_operator_pod = is_delete_operator_pod
+        self.get_logs = get_logs
+        self.image_pull_policy = image_pull_policy
+        self.full_pod_spec = full_pod_spec
+        self.execution_timeout = execution_timeout
+
+        # Logger setup
+        self.logger = self._get_logger()
+
+    def execute(self, context):
+        self.logger.info(
+            "KittuK8sPodOperator Parameters: namespace=%s, pod_name=%s, image=%s, command=%s, args=%s, env_vars=%s, volume_mounts=%s, volumes=%s, in_cluster=%s, is_delete_operator_pod=%s, get_logs=%s, image_pull_policy=%s, execution_timeout=%s",
+            self.namespace,
+            self.pod_name,
+            self.image,
+            self.command,
+            self.args,
+            self.env_vars,
+            self.volume_mounts,
+            self.volumes,
+            self.in_cluster,
+            self.is_delete_operator_pod,
+            self.get_logs,
+            self.image_pull_policy,
+            self.execution_timeout,
+        )
+
+        if self.full_pod_spec is None:
+            self.full_pod_spec = k8s_models.V1Pod(
+                spec=k8s_models.V1PodSpec(
+                    containers=[
+                        k8s_models.V1Container(
+                            name=self.pod_name,
+                            image=self.image,
+                            command=self.command,
+                            args=self.args,
+                            env=self.env_vars,
+                            volume_mounts=self.volume_mounts,
+                        )
+                    ],
+                    volumes=self.volumes,
+                )
+            )
+
+        pod_operator = KubernetesPodOperator(
+            namespace=self.namespace,
+            image=self.image,
+            cmds=self.command,
+            arguments=self.args,
+            name=self.pod_name,
+            task_id=self.task_id,
+            in_cluster=self.in_cluster,
+            is_delete_operator_pod=self.is_delete_operator_pod,
+            get_logs=self.get_logs,
+            image_pull_policy=self.image_pull_policy,
+            full_pod_spec=self.full_pod_spec,
+        )
+
+        pod_operator.execute(context)
+
+    def _get_logger(self, level=logging.INFO):
+        logging.basicConfig(level=level)
+        return logging.getLogger(__name__)
